@@ -10,6 +10,7 @@ import {
   AudioCommandStoreTypes,
   transformCommandStore,
   FetchAudioResult,
+  FetchAudioStreamResult,
   EditorAudioQuery,
 } from "./type";
 import {
@@ -29,6 +30,7 @@ import { createPartialStore } from "./vuex";
 import { determineNextPresetKey } from "./preset";
 import {
   fetchAudioFromAudioItem,
+  fetchAudioStreamFromAudioItem,
   generateLabFromAudioQuery,
   handlePossiblyNotMorphableError,
   isMorphable,
@@ -1319,6 +1321,21 @@ export const audioStore = createPartialStore<AudioStoreTypes>({
     },
   },
 
+  FETCH_AUDIO_STREAM: {
+    async action(
+      { actions, state },
+      { audioKey, ...options }: { audioKey: AudioKey; cacheOnly?: boolean },
+    ) {
+      const audioItem: AudioItem = cloneWithUnwrapProxy(
+        state.audioItems[audioKey],
+      );
+      return actions.FETCH_AUDIO_STREAM_FROM_AUDIO_ITEM({
+        audioItem,
+        ...options,
+      });
+    },
+  },
+
   FETCH_AUDIO_FROM_AUDIO_ITEM: {
     action: createUILockAction(
       async (
@@ -1329,6 +1346,20 @@ export const audioStore = createPartialStore<AudioStoreTypes>({
           engineId: options.audioItem.voice.engineId,
         });
         return fetchAudioFromAudioItem(state, instance, options);
+      },
+    ),
+  },
+
+  FETCH_AUDIO_STREAM_FROM_AUDIO_ITEM: {
+    action: createUILockAction(
+      async (
+        { actions, state },
+        options: { audioItem: AudioItem; cacheOnly?: boolean },
+      ) => {
+        const instance = await actions.INSTANTIATE_ENGINE_CONNECTOR({
+          engineId: options.audioItem.voice.engineId,
+        });
+        return fetchAudioStreamFromAudioItem(state, instance, options);
       },
     ),
   },
@@ -1740,14 +1771,14 @@ export const audioStore = createPartialStore<AudioStoreTypes>({
         await actions.STOP_AUDIO();
 
         // 音声用意
-        let fetchAudioResult: FetchAudioResult;
+        let fetchAudioStreamResult: FetchAudioStreamResult;
         mutations.SET_AUDIO_NOW_GENERATING({
           audioKey,
           nowGenerating: true,
         });
         try {
-          fetchAudioResult = await withProgress(
-            actions.FETCH_AUDIO({ audioKey }),
+          fetchAudioStreamResult = await withProgress(
+            actions.FETCH_AUDIO_STREAM({ audioKey }),
             actions,
           );
         } finally {
@@ -1757,11 +1788,39 @@ export const audioStore = createPartialStore<AudioStoreTypes>({
           });
         }
 
-        const { blob } = fetchAudioResult;
-        return actions.PLAY_AUDIO_BLOB({
-          audioBlob: blob,
+        const { stream } = fetchAudioStreamResult;
+        return actions.PLAY_AUDIO_STREAM({
+          audioStream: stream,
           audioKey,
         });
+      },
+    ),
+  },
+
+  PLAY_AUDIO_STREAM: {
+    action: createUILockAction(
+      async (
+        { getters, mutations, actions },
+        { audioStream, audioKey }: { audioStream: ReadableStream<Uint8Array>; audioKey?: AudioKey },
+      ) => {
+        let offset: number | undefined;
+        // 途中再生用の処理
+        if (audioKey) {
+          const accentPhraseOffsets = await actions.GET_AUDIO_PLAY_OFFSETS({
+            audioKey,
+          });
+          if (accentPhraseOffsets.length === 0)
+            throw new Error("accentPhraseOffsets.length === 0");
+          const startTime =
+            accentPhraseOffsets[getters.AUDIO_PLAY_START_POINT ?? 0];
+          if (startTime == undefined) throw Error("startTime == undefined");
+          // 小さい値が切り捨てられることでフォーカスされるアクセントフレーズが一瞬元に戻るので、
+          // 再生に影響のない程度かつ切り捨てられない値を加算する
+          offset = startTime + 10e-6;
+        }
+        const buffer: number = 1;
+
+        return actions.STREAM_AUDIO_PLAYER({ offset, buffer, audioStream, audioKey });
       },
     ),
   },

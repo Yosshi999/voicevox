@@ -243,6 +243,13 @@ export interface SynthesisRequest {
     coreVersion?: string;
 }
 
+export interface StreamSynthesisRequest {
+    speaker: number;
+    audioQuery: AudioQuery;
+    enableInterrogativeUpspeak?: boolean;
+    coreVersion?: string;
+}
+
 export interface SynthesisMorphingRequest {
     baseSpeaker: number;
     targetSpeaker: number;
@@ -908,6 +915,24 @@ export interface DefaultApiInterface {
      * 音声合成する
      */
     synthesis(requestParameters: SynthesisRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<Blob>;
+
+    /**
+     * 
+     * @summary ストリーミングで音声合成する
+     * @param {number} speaker 
+     * @param {AudioQuery} audioQuery 
+     * @param {boolean} [enableInterrogativeUpspeak] 疑問系のテキストが与えられたら語尾を自動調整する
+     * @param {string} [coreVersion] 
+     * @param {*} [options] Override http request option.
+     * @throws {RequiredError}
+     * @memberof DefaultApiInterface
+     */
+    streamSynthesisRaw(requestParameters: StreamSynthesisRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ReadableStream<Uint8Array>>;
+
+    /**
+     * ストリーミングで音声合成する
+     */
+    streamSynthesis(requestParameters: StreamSynthesisRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ReadableStream<Uint8Array>>;
 
     /**
      * 指定された2種類のスタイルで音声を合成、指定した割合でモーフィングした音声を得ます。 モーフィングの割合は`morph_rate`で指定でき、0.0でベースのスタイル、1.0でターゲットのスタイルに近づきます。
@@ -2526,6 +2551,55 @@ export class DefaultApi extends runtime.BaseAPI implements DefaultApiInterface {
         }, initOverrides);
 
         return new runtime.BlobApiResponse(response);
+    }
+
+    /**
+     * ストリーミングで音声合成する
+     */
+    async streamSynthesis(requestParameters: StreamSynthesisRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ReadableStream<Uint8Array>> {
+        const response = await this.streamSynthesisRaw(requestParameters, initOverrides);
+        return response;
+    }
+
+    /**
+     * ストリーミングで音声合成する
+     */
+    async streamSynthesisRaw(requestParameters: StreamSynthesisRequest, initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<ReadableStream<Uint8Array>> {
+        if (requestParameters.speaker === null || requestParameters.speaker === undefined) {
+            throw new runtime.RequiredError('speaker','Required parameter requestParameters.speaker was null or undefined when calling synthesis.');
+        }
+
+        if (requestParameters.audioQuery === null || requestParameters.audioQuery === undefined) {
+            throw new runtime.RequiredError('audioQuery','Required parameter requestParameters.audioQuery was null or undefined when calling synthesis.');
+        }
+
+        const queryParameters: any = {};
+
+        if (requestParameters.speaker !== undefined) {
+            queryParameters['speaker'] = requestParameters.speaker;
+        }
+
+        if (requestParameters.enableInterrogativeUpspeak !== undefined) {
+            queryParameters['enable_interrogative_upspeak'] = requestParameters.enableInterrogativeUpspeak;
+        }
+
+        if (requestParameters.coreVersion !== undefined) {
+            queryParameters['core_version'] = requestParameters.coreVersion;
+        }
+
+        const headerParameters: runtime.HTTPHeaders = {};
+
+        headerParameters['Content-Type'] = 'application/json';
+
+        const response = await this.request({
+            path: `/stream_synthesis`,
+            method: 'POST',
+            headers: headerParameters,
+            query: queryParameters,
+            body: AudioQueryToJSON(requestParameters.audioQuery),
+        }, initOverrides);
+
+        return response.body!;
     }
 
     /**

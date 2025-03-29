@@ -3,13 +3,14 @@ import {
   AudioStoreState,
   EditorAudioQuery,
   FetchAudioResult,
+  FetchAudioStreamResult,
   IEngineConnectorFactoryActionsMapper,
   SettingStoreState,
 } from "./type";
 import { convertAudioQueryFromEditorToEngine } from "./proxy";
 import { generateTempUniqueId } from "./utility";
 
-const audioBlobCache: Record<string, Blob> = {};
+const audioBlobCache: Record<string, Promise<Blob>> = {};
 
 type Instance = {
   invoke: IEngineConnectorFactoryActionsMapper;
@@ -34,7 +35,7 @@ export async function fetchAudioFromAudioItem(
     throw new Error("audioQuery is not defined for audioItem");
 
   if (Object.prototype.hasOwnProperty.call(audioBlobCache, id)) {
-    const blob = audioBlobCache[id];
+    const blob = await audioBlobCache[id];
     return { audioQuery, blob };
   }
 
@@ -63,9 +64,48 @@ export async function fetchAudioFromAudioItem(
         state.experimentalSetting.enableInterrogativeUpspeak,
     });
   }
-  audioBlobCache[id] = blob;
+  audioBlobCache[id] = Promise.resolve(blob);
   return { audioQuery, blob };
 }
+
+export async function fetchAudioStreamFromAudioItem(
+  state: AudioStoreState & SettingStoreState,
+  instance: Instance,
+  {
+    audioItem,
+  }: {
+    audioItem: AudioItem;
+  },
+): Promise<FetchAudioStreamResult> {
+  const engineId = audioItem.voice.engineId;
+
+  const [id, audioQuery] = await generateUniqueIdAndQuery(state, audioItem);
+  if (audioQuery == undefined)
+    throw new Error("audioQuery is not defined for audioItem");
+
+  if (Object.prototype.hasOwnProperty.call(audioBlobCache, id)) {
+    const blob = await audioBlobCache[id];
+    return { audioQuery, stream: blob.stream() };
+  }
+
+  const speaker = audioItem.voice.styleId;
+
+  const engineAudioQuery = convertAudioQueryFromEditorToEngine(
+    audioQuery,
+    state.engineManifests[engineId].defaultSamplingRate,
+  );
+
+  const stream = await instance.invoke("streamSynthesis")({
+    audioQuery: engineAudioQuery,
+    speaker,
+    enableInterrogativeUpspeak:
+      state.experimentalSetting.enableInterrogativeUpspeak,
+  });
+  const [rawStream, rawStreamForCache] = stream.tee();
+  audioBlobCache[id] = new Response(rawStreamForCache).blob();
+  return { audioQuery, stream: rawStream };
+}
+
 
 export async function generateLabFromAudioQuery(
   audioQuery: EditorAudioQuery,

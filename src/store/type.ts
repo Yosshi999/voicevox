@@ -75,6 +75,7 @@ import {
   MultiFileProjectFormat,
   SingleFileProjectFormat,
 } from "@/sing/utaformatixProject/utils";
+import { Readable } from "node:stream";
 
 /**
  * エディタ用のAudioQuery
@@ -102,6 +103,11 @@ export type AudioState = {
 export type FetchAudioResult = {
   audioQuery: EditorAudioQuery;
   blob: Blob;
+};
+
+export type FetchAudioStreamResult = {
+  audioQuery: EditorAudioQuery;
+  stream: ReadableStream<Uint8Array>;
 };
 
 export type Command = {
@@ -424,8 +430,16 @@ export type AudioStoreTypes = {
     action(payload: { audioKey: AudioKey }): Promise<FetchAudioResult>;
   };
 
+  FETCH_AUDIO_STREAM: {
+    action(payload: { audioKey: AudioKey }): Promise<FetchAudioStreamResult>;
+  };
+
   FETCH_AUDIO_FROM_AUDIO_ITEM: {
     action(payload: { audioItem: AudioItem }): Promise<FetchAudioResult>;
+  };
+
+  FETCH_AUDIO_STREAM_FROM_AUDIO_ITEM: {
+    action(payload: { audioItem: AudioItem }): Promise<FetchAudioStreamResult>;
   };
 
   CONNECT_AUDIO: {
@@ -460,6 +474,10 @@ export type AudioStoreTypes = {
 
   PLAY_AUDIO: {
     action(payload: { audioKey: AudioKey }): boolean;
+  };
+
+  PLAY_AUDIO_STREAM: {
+    action(payload: { audioStream: ReadableStream<Uint8Array>, audioKey: AudioKey }): boolean;
   };
 
   PLAY_AUDIO_BLOB: {
@@ -740,7 +758,15 @@ export type AudioPlayerStoreTypes = {
     action(payload: { offset?: number; audioKey?: AudioKey }): Promise<boolean>;
   };
 
+  STREAM_AUDIO_PLAYER: {
+    action(payload: { offset?: number; buffer?: number, audioStream: ReadableStream<Uint8Array>, audioKey?: AudioKey }): Promise<boolean>;
+  };
+
   STOP_AUDIO: {
+    action(): void;
+  };
+
+  STOP_STREAM: {
     action(): void;
   };
 };
