@@ -267,13 +267,35 @@ export const audioPlayerStore = createPartialStore<AudioPlayerStoreTypes>({
         mutations.SET_AUDIO_NOW_PLAYING({ audioKey, nowPlaying: true });
       }
       let lastBufferedTime = 0;
+      const sourcePromises: Promise<void>[] = [];
+
       while (true) {
         const {done, value} = await reader.read();
-        if (done || audioContext.state === "closed") {
+        if (audioContext.state === "closed") {
+          // audioContextが閉じている場合はすぐに終了
           if (audioKey) {
             mutations.SET_AUDIO_NOW_PLAYING({ audioKey, nowPlaying: false });
           }
           break;
+        }
+        if (done) {
+          // すべての音声データが再生し終わるか停止されるのを待ってからGUIを更新
+          const allSourceFinished = Promise.all(sourcePromises).then(() => true);
+          let paused: () => void;
+          const audioIsPaused = new Promise<boolean>((resolve) => {
+            paused = () => {
+              if (audioContext.state === "closed") {
+                resolve(false);
+              }
+            };
+            audioContext.addEventListener("statechange", paused);
+          });
+          return Promise.any([allSourceFinished, audioIsPaused]).finally(() => {
+            if (audioKey) {
+              mutations.SET_AUDIO_NOW_PLAYING({ audioKey, nowPlaying: false });
+            }
+            audioContext.removeEventListener("statechange", paused);
+          });
         }
         const numFrames = value.length;
         const source = audioContext.createBufferSource();
@@ -281,6 +303,13 @@ export const audioPlayerStore = createPartialStore<AudioPlayerStoreTypes>({
         source.buffer.copyToChannel(value, 0);
         source.connect(audioContext.destination);
         source.start(lastBufferedTime);
+        sourcePromises.push(
+          new Promise((resolve) => {
+            source.onended = () => {
+              resolve();
+            };
+          }),
+        )
         lastBufferedTime = Math.max(lastBufferedTime, audioContext.currentTime) + numFrames / 24000;
       }
       // FIXME: ユーザーに止められたときはfalseを返すべき
@@ -293,6 +322,7 @@ export const audioPlayerStore = createPartialStore<AudioPlayerStoreTypes>({
     action() {
       // PLAY_ でonpause時の処理が設定されているため、pauseするだけで良い
       getAudioElement().pause();
+      getAudioContext().close();
     },
   },
 
